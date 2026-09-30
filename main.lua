@@ -9,16 +9,39 @@ local function newUIComponents()
     local input = ""
     local automaticMode = false
 
-    local okCallback = nil
-    local nextStepCallback = nil
+    -- callbacks por evento: "insert", "delete", "search", "nextStep"
+    local callbacks = {}
+
+    local buttons = {
+        { label = "Insert", action = "insert", x = 180, y = 20, w = 70, h = 40 },
+        { label = "Delete", action = "delete", x = 260, y = 20, w = 70, h = 40 },
+        { label = "Search", action = "search", x = 340, y = 20, w = 70, h = 40 },
+    }
+
+    local toggle = { x = 20, y = 90, w = 50, h = 26 }
+    local nextButton = { x = 90, y = 82, w = 100, h = 40 }
+
+    local function inside(x, y, r)
+        return x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h
+    end
+
+    local function submit(action)
+        local value = tonumber(input)
+        if value and callbacks[action] then
+            callbacks[action](value)
+            input = ""
+        end
+    end
+
+    local function nextStep()
+        if not automaticMode and callbacks.nextStep then
+            callbacks.nextStep()
+        end
+    end
 
     return {
-        setOnOk = function(callback)
-            okCallback = callback
-        end,
-
-        setOnNextStep = function(callback)
-            nextStepCallback = callback
+        on = function(event, callback)
+            callbacks[event] = callback
         end,
 
         isAutomatic = function()
@@ -26,25 +49,25 @@ local function newUIComponents()
         end,
 
         textinput = function(text)
-            input = input .. text
+            -- só aceita caracteres de número (evita o espaço do "next step" entrar no campo)
+            if text:match("^[%d%.%-]$") then
+                input = input .. text
+            end
         end,
 
         keypressed = function(key)
             if key == "backspace" then
                 input = input:sub(1, -2)
-
-            elseif key == "return" then
-                local value = tonumber(input)
-
-                if value and okCallback then
-                    okCallback(value)
-                    input = ""
-                end
-
-            elseif key == "space" and not automaticMode then
-                if nextStepCallback then
-                    nextStepCallback()
-                end
+            elseif key == "return" or key == "kpenter" then
+                submit("insert")
+            elseif key == "delete" then
+                submit("delete")
+            elseif key == "f" then
+                submit("search")
+            elseif key == "space" then
+                nextStep()
+            elseif key == "a" then
+                automaticMode = not automaticMode
             end
         end,
 
@@ -53,33 +76,20 @@ local function newUIComponents()
                 return
             end
 
-            -- OK
-            if x >= 180 and x <= 240
-            and y >= 20 and y <= 60 then
-                local value = tonumber(input)
-
-                if value and okCallback then
-                    okCallback(value)
-                    input = ""
+            for _, b in ipairs(buttons) do
+                if inside(x, y, b) then
+                    submit(b.action)
+                    return
                 end
-
-                return
             end
 
-            -- toggle automatic
-            if x >= 20 and x <= 70
-            and y >= 90 and y <= 116 then
+            if inside(x, y, toggle) then
                 automaticMode = not automaticMode
                 return
             end
 
-            -- next step
-            if not automaticMode
-            and x >= 90 and x <= 190
-            and y >= 82 and y <= 122 then
-                if nextStepCallback then
-                    nextStepCallback()
-                end
+            if inside(x, y, nextButton) then
+                nextStep()
             end
         end,
 
@@ -90,18 +100,16 @@ local function newUIComponents()
             love.graphics.rectangle("line", 20, 20, 150, 40)
             love.graphics.print(input, 30, 30)
 
-            -- OK
-            love.graphics.rectangle("line", 180, 20, 60, 40)
-            love.graphics.printf("OK", 180, 32, 60, "center")
+            -- botões de operação
+            for _, b in ipairs(buttons) do
+                love.graphics.rectangle("line", b.x, b.y, b.w, b.h)
+                love.graphics.printf(b.label, b.x, b.y + 12, b.w, "center")
+            end
 
             -- toggle
-            local toggleX = 20
-            local toggleY = 90
-            local toggleWidth = 50
-            local toggleHeight = 26
-            local toggleRadius = toggleHeight / 2
+            local radius = toggle.h / 2
 
-            love.graphics.print("Automatic", toggleX, toggleY - 20)
+            love.graphics.print("Automatic", toggle.x, toggle.y - 20)
 
             if automaticMode then
                 love.graphics.setColor(0, 0.8, 0.3)
@@ -109,26 +117,18 @@ local function newUIComponents()
                 love.graphics.setColor(0.4, 0.4, 0.4)
             end
 
-            love.graphics.rectangle("fill", toggleX, toggleY, toggleWidth, toggleHeight, toggleRadius, toggleRadius)
+            love.graphics.rectangle("fill", toggle.x, toggle.y, toggle.w, toggle.h, radius, radius)
 
-            local circleX
-
-            if automaticMode then
-                circleX = toggleX + toggleWidth - toggleRadius
-            else
-                circleX = toggleX + toggleRadius
-            end
+            local circleX = automaticMode and (toggle.x + toggle.w - radius) or (toggle.x + radius)
 
             love.graphics.setColor(1, 1, 1)
-            love.graphics.circle("fill", circleX, toggleY + toggleRadius, toggleRadius - 3)
+            love.graphics.circle("fill", circleX, toggle.y + radius, radius - 3)
 
             -- next step
             if not automaticMode then
-                love.graphics.rectangle("line", 90, 82, 100, 40)
-                love.graphics.printf("Next step", 90, 94, 100, "center")
+                love.graphics.rectangle("line", nextButton.x, nextButton.y, nextButton.w, nextButton.h)
+                love.graphics.printf("Next step", nextButton.x, nextButton.y + 12, nextButton.w, "center")
             end
-
-            love.graphics.setColor(1, 1, 1)
         end
     }
 end
@@ -139,13 +139,46 @@ end
 local function newAVLVisualizer()
     local root = nil
 
-    local insertionCoroutine = nil
+    local operationCoroutine = nil
     local currentAction = nil
+    local message = ""
 
     local timer = 0
 
     local NODE_RADIUS = 25
     local LEVEL_HEIGHT = 80
+    local ROOT_Y = 200
+
+    local COLORS = {
+        visit     = { 1, 1, 0 },
+        insert    = { 0, 1, 0 },
+        balance   = { 0, 0.6, 1 },
+        rotate    = { 1, 0, 0 },
+        rotated   = { 1, 0, 1 },
+        delete    = { 1, 0.3, 0.3 },
+        successor = { 1, 0.6, 0 },
+        found     = { 0, 1, 0.6 },
+    }
+
+    local function describe(action)
+        local t = action.type
+        local k = action.node and action.node.key
+
+        if t == "visit" then      return "Visitando " .. k
+        elseif t == "insert" then return "Inserido " .. k
+        elseif t == "balance" then return "Nó " .. k .. ": balanço = " .. action.balance
+        elseif t == "rotate" then
+            return "Caso " .. action.case .. " | rotação à " ..
+                (action.rotation == "left" and "esquerda" or "direita") .. " em " .. k
+        elseif t == "rotated" then   return "Nova raiz da subárvore: " .. k
+        elseif t == "delete" then    return "Removendo " .. k
+        elseif t == "successor" then return "Sucessor: " .. k .. " (menor da subárvore direita)"
+        elseif t == "found" then     return "Encontrado: " .. k
+        elseif t == "notfound" then  return "Chave " .. action.key .. " não encontrada"
+        end
+
+        return ""
+    end
 
     local function drawConnection(x1, y1, x2, y2)
         local dx = x2 - x1
@@ -156,35 +189,17 @@ local function newAVLVisualizer()
         local nx = dx / distance
         local ny = dy / distance
 
-        local startX = x1 + nx * NODE_RADIUS
-        local startY = y1 + ny * NODE_RADIUS
-
-        local endX = x2 - nx * NODE_RADIUS
-        local endY = y2 - ny * NODE_RADIUS
-
-        love.graphics.line(startX, startY, endX, endY)
+        love.graphics.line(
+            x1 + nx * NODE_RADIUS, y1 + ny * NODE_RADIUS,
+            x2 - nx * NODE_RADIUS, y2 - ny * NODE_RADIUS
+        )
     end
 
     local function setNodeColor(node)
-        if not currentAction or currentAction.node ~= node then
+        if currentAction and currentAction.node == node and COLORS[currentAction.type] then
+            love.graphics.setColor(COLORS[currentAction.type])
+        else
             love.graphics.setColor(1, 1, 1)
-            return
-        end
-
-        if currentAction.type == "visit" then
-            love.graphics.setColor(1, 1, 0)
-
-        elseif currentAction.type == "insert" then
-            love.graphics.setColor(0, 1, 0)
-
-        elseif currentAction.type == "balance" then
-            love.graphics.setColor(0, 0.6, 1)
-
-        elseif currentAction.type == "rotate" then
-            love.graphics.setColor(1, 0, 0)
-
-        elseif currentAction.type == "rotated" then
-            love.graphics.setColor(1, 0, 1)
         end
     end
 
@@ -197,14 +212,12 @@ local function newAVLVisualizer()
 
         if node.leftchild then
             local childX = x - offset
-
             drawConnection(x, y, childX, childY)
             drawNode(node.leftchild, childX, childY, offset / 2)
         end
 
         if node.rightchild then
             local childX = x + offset
-
             drawConnection(x, y, childX, childY)
             drawNode(node.rightchild, childX, childY, offset / 2)
         end
@@ -220,55 +233,71 @@ local function newAVLVisualizer()
         love.graphics.setColor(1, 1, 1)
     end
 
-    local function finishInsertion()
-        insertionCoroutine = nil
+    local function finishOperation()
+        operationCoroutine = nil
         currentAction = nil
         timer = 0
     end
 
     local function nextStep()
-        if not insertionCoroutine then
+        if not operationCoroutine then
             return
         end
 
-        if coroutine.status(insertionCoroutine) == "dead" then
-            finishInsertion()
-            return
-        end
-
-        local success, action = coroutine.resume(insertionCoroutine)
+        local success, action = coroutine.resume(operationCoroutine)
 
         if not success then
-            print(action)
-            finishInsertion()
+            message = "Erro: " .. tostring(action)
+            finishOperation()
+            return
+        end
+
+        -- a função terminou: mostra a árvore final sem destaque
+        if coroutine.status(operationCoroutine) == "dead" then
+            finishOperation()
             return
         end
 
         currentAction = action
+        message = describe(action)
+    end
+
+    -- definida depois de nextStep, para poder chamá-la
+    local function startOperation(label, fn)
+        if operationCoroutine then
+            message = "Termine a operação atual primeiro"
+            return
+        end
+
+        message = label
+        operationCoroutine = coroutine.create(fn)
+        timer = 0
+        nextStep()
     end
 
     return {
         insert = function(value)
-            if insertionCoroutine then
-                return
-            end
-
-            insertionCoroutine = coroutine.create(function()
+            startOperation("Inserindo " .. value, function()
                 root = AVL.insert(root, value)
             end)
+        end,
 
-            timer = 0
-            nextStep()
+        delete = function(value)
+            startOperation("Removendo " .. value, function()
+                root = AVL.delete(root, value)
+            end)
+        end,
+
+        search = function(value)
+            startOperation("Buscando " .. value, function()
+                AVL.search(root, value)
+            end)
         end,
 
         nextStep = nextStep,
 
         update = function(dt, automaticMode)
-            if not automaticMode then
-                return
-            end
-
-            if not insertionCoroutine then
+            if not automaticMode or not operationCoroutine then
                 return
             end
 
@@ -281,16 +310,13 @@ local function newAVLVisualizer()
         end,
 
         draw = function()
-            if currentAction and currentAction.type == "rotate" then
-                local width = love.graphics.getWidth()
-                local height = love.graphics.getHeight()
+            local width = love.graphics.getWidth()
 
-                love.graphics.printf("Case: " .. currentAction.case .. " | Rotation: " .. currentAction.rotation, 0, 150, width, "center")
-            end
+            love.graphics.setColor(1, 1, 1)
+            love.graphics.printf(message, 0, 140, width, "center")
 
             if root then
-                local width = love.graphics.getWidth()
-                drawNode(root, width / 2, 90, width / 4)
+                drawNode(root, width / 2, ROOT_Y, width / 4)
             end
         end
     }
@@ -306,13 +332,10 @@ function love.load()
     ui = newUIComponents()
     avlVisualizer = newAVLVisualizer()
 
-    ui.setOnOk(function(value)
-        avlVisualizer.insert(value)
-    end)
-
-    ui.setOnNextStep(function()
-        avlVisualizer.nextStep()
-    end)
+    ui.on("insert", avlVisualizer.insert)
+    ui.on("delete", avlVisualizer.delete)
+    ui.on("search", avlVisualizer.search)
+    ui.on("nextStep", avlVisualizer.nextStep)
 end
 
 function love.textinput(text)
