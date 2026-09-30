@@ -1,19 +1,33 @@
-# Tree Visualizer
+# AVL Tree Visualizer
 
-An interactive AVL tree visualizer developed in Lua with LÖVE2D.
+An interactive AVL tree visualizer built with Lua and LÖVE. Insert, delete, and search for values while following each step of the operation, including balance checks and rotations.
 
-The project allows users to insert values into the tree and visually follow the insertion process, balance factor calculations, and rotations.
+**Play online:** [Tree Visualizer](https://luizseibel.github.io/Tree-Visualizer/)
 
 ## Controls
 
-- Type a number using the keyboard.
-- Press `Enter` or click `OK` to insert it.
-- In manual mode, press `Space` or click `Next step` to advance the execution step by step.
-- `Automatic` mode runs each insertion step automatically.
+Type a number in the field at the top left, then choose an operation. The field accepts digits, `-`, and `.`; use `Backspace` to erase characters.
 
-During execution, nodes change color to indicate actions such as visiting, insertion, balance checking, and rotations.
+| Action | Keyboard | Mouse |
+| --- | --- | --- |
+| Insert the value | `Enter` | Click **Insert** |
+| Delete the value | `Delete` | Click **Delete** |
+| Search for the value | `F` | Click **Search** |
+| Advance one step in manual mode | `Space` | Click **Next step** |
+| Switch between manual and automatic mode | `A` | Click the **Automatic** toggle |
 
-## Technologies
+An operation shows its first step immediately. In manual mode, advance through the remaining steps with `Space` or **Next step**. In automatic mode, steps advance about every 0.9 seconds. Finish the current operation before starting another one.
 
-- Lua
-- LÖVE2D
+If you are playing in a browser, click the game area first so it receives keyboard input.
+
+## Run locally
+
+Install [LÖVE](https://love2d.org/) and run this command from the project directory:
+
+```bash
+love .
+```
+
+## What the visualization shows
+
+Nodes display their height (`h`) and balance factor (`b`). Colors highlight the node being visited, inserted, deleted, checked for balance, or rotated. A message above the tree describes the current step.
